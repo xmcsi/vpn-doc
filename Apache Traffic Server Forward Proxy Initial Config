@@ -1,0 +1,11 @@
+trafficserver  config
+=======================
+
+records.conf
+CONFIG proxy.config.url_remap.remap_required INT 0
+CONFIG proxy.config.reverse_proxy.enabled INT 0
+proxy.config.http.insert_squid_x_forwarded_for 0
+
+
+storage.conf
+/cache/trafficserver 500G
