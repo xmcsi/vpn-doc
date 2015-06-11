@@ -1,0 +1,19 @@
+Generate TUN devices with socat
+
+In this section two instances of socat are used to generate TUN devices on different hosts and connect the "wire" sides, providing a simple virtual network.
+
+We distinguish server and client only with respect to the connection between the two socat instances; the TUN interfaces both have the same quality.
+
+TUN Server
+
+socat -d -d TCP-LISTEN:11443,reuseaddr TUN:192.168.255.1/24,up
+After starting this command, socat will wait for a connection and then create a TUN pseudo network device with address 192.168.255.1; the bit number specifies the mask of the network that is pretended to be connected on this interface.
+
+TUN Client
+
+socat TCP:1.2.3.4:11443 TUN:192.168.255.2/24,up
+This command should establish a connection to the server and create the TUN device on the client.
+
+Seeing it work
+
+After successful connection both TUN interfaces should be active and transfer date between each other using the TCP connection. Try this by pinging 192.168.255.1 from the client and 192.168.255.2 from the server.
