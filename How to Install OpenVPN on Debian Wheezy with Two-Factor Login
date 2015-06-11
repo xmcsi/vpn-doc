@@ -1,0 +1,191 @@
+How to Install OpenVPN on Debian Wheezy with Two-Factor Login
+
+INSTALL AND CONFIGURE THE OPENVPN SERVER
+
+This guide is for installing openVPN 2.2.1-8 on Debian Wheezy.
+
+Start by installing openVPN:
+apt-get install openvpn -y
+Then move the easy-rsa folder so we can start creating our certs and keys:
+cp -R /usr/share/doc/openvpn/examples/easy-rsa/2.0 /etc/openvpn/easy-rsa
+cd /etc/openvpn/easy-rsa/
+nano vars
+edit all the KEY_ entries at the bottom of the 'vars' file to match the information you need:
+export KEY_COUNTRY="US"
+export KEY_PROVINCE="TN"
+export KEY_CITY="Chattanooga"
+export KEY_ORG="Fort-Funston"
+export KEY_EMAIL="me@myhost.mydomain"
+export KEY_EMAIL=mail@host.domain
+export KEY_CN=""
+export KEY_NAME=""
+export KEY_OU=""
+export PKCS11_MODULE_PATH=""
+export PKCS11_PIN=1234
+NOTE: You may want to name 'KEY_CN=' after the CA, server and client.
+Creating Certificates
+
+. ./vars
+sh clean-all
+sh build-ca
+sh build-key-server server
+sh build-dh
+openvpn --genkey --secret keys/ta.key
+sh build-key client1
+These are the answers I provided when I was prompted for them:
+A Challenge password []:
+An optional company name []:
+Sign the certificate? [y/n]:y
+1 out of 1 certificate requests certified, commit [y/n]y
+Modifying the OpenVPN Config File
+
+gunzip /usr/share/doc/openvpn/examples/sample-config-files/server.conf.gz
+cp /usr/share/doc/openvpn/examples/sample-config-files/server.conf /etc/openvpn
+cd /etc/openvpn/
+nano server.conf
+These are the settings I used:
+local 192.168.1.xxx
+port 1194
+proto udp
+dev tun
+ca keys/ca.crt
+cert keys/server.crt
+key keys/server.key  # This file should be kept secret
+dh keys/dh1024.pem
+server 10.8.0.0 255.255.255.0
+ifconfig-pool-persist ipp.txt
+plugin /usr/lib/openvpn/openvpn-auth-pam.so login
+push "dhcp-option DNS 192.168.1.xxx"
+push "dhcp-option DOMAIN domain.com"
+client-to-client
+keepalive 10 120
+tls-auth keys/ta.key 0 # This file is secret
+cipher AES-256-CBC
+comp-lzo
+max-clients 3
+user nobody
+group nogroup
+persist-key
+persist-tun
+status openvpn-status.log
+log /var/log/openvpn.log
+verb 3
+I then created the openVPN log file:
+touch /var/log/openvpn.log
+Now to move our required certificates and keys:
+cd /etc/openvpn/
+mkdir /etc/openvpn/keys
+chown -R root:root /etc/openvpn
+chmod -R 0600 "/etc/openvpn/keys" "/etc/openvpn/server.conf"
+cp easy-rsa/keys/{ca.crt,dh1024.pem,server.crt,server.key,ta.key,client1.crt,client1.key} 
+/etc/openvpn/keys
+Finally, edit '/etc/default/openvpn' so your configuration gets started with its init script:
+AUTOSTART="server"
+Optional Two-Factor Login with LDAP:
+
+If you want to authenticate with LDAP change this line:
+plugin /usr/lib/openvpn/openvpn-auth-pam.so login
+to
+plugin /usr/lib/openvpn/openvpn-auth-pam.so openvpn
+Then follow these instructions:
+Create '/etc/pam.d/openvpn/' with this information:
+* NOTE* 
+whatever you name the file under /etc/pam.d/ is what you need to put replace 'login' with after 'plugin /usr/lib/openvpn/openvpn-auth-pam.so'
+account required pam_ldap.so config=/etc/openvpn/pam_ldap.conf
+auth  required pam_ldap.so config=/etc/openvpn/pam_ldap.conf
+password required pam_ldap.so config=/etc/openvpn/pam_ldap.conf
+session required pam_ldap.so config=/etc/openvpn/pam_ldap.conf
+Then create '/etc/pam_ldap.conf' with this information:
+# change to your search base
+base dc=example,dc=com
+# change according to your settings
+uri ldap://127.0.0.1
+ldap_version 3
+rootbinddn cn=admin,dc=example,dc=com
+pam_login_attribute uid
+pam_password crypt
+
+CLIENT SETUP
+
+apt-get install openvpn -y
+mkdir /etc/openvpn/keys
+chown -R root:root /etc/openvpn
+chmod -R 0600 /etc/openvpn/keys
+The client requires these files: [ca.crt, client1.crt, and client1.key], so let's copy them to the client server:
+scp "/etc/openvpn/keys/ca.crt" "/etc/openvpn/keys/client1.crt" "/etc/openvpn/keys/client1.key" "/etc/openvpn/keys/ta.key" "/usr/share/doc/openvpn/examples/sample-config-files/client.conf" root@192.168.1.xxx:/etc/openvpn/keys
+Move the client confiog file and edit it:
+mv /etc/openvpn/keys/client.conf /etc/openvpn
+nano /etc/openvpn/client.conf
+I used these setting for the client.conf file:
+client
+dev tun
+proto udp
+remote 192.168.1.xxx 1194 # use IP or hostname
+resolv-retry infinite
+nobind
+user nobody
+group nogroup
+persist-key
+persist-tun
+ca keys/ca.crt
+cert keys/client1.crt
+key keys/client1.key
+tls-auth keys/ta.key 1
+ns-cert-type server
+cipher AES-256-CBC
+comp-lzo
+verb 3
+pull dhcp-options
+status openvpn-status.log
+auth-user-pass
+Connect to the openVPN server. Just make sure you are in the '/etc/openvpn' directory:
+openvpn client.conf
+You should see something like this:
+Mon Jul 15 12:05:10 2013 [OpenVPN] Peer Connection Initiated with [AF_INET]172.16.3.132:1194
+Mon Jul 15 12:05:12 2013 SENT CONTROL [OpenVPN]: 'PUSH_REQUEST' (status=1)
+Mon Jul 15 12:05:12 2013 TUN/TAP device tun0 opened
+Mon Jul 15 12:05:12 2013 TUN/TAP TX queue length set to 100
+Mon Jul 15 12:05:12 2013 do_ifconfig, tt->ipv6=0, tt->did_ifconfig_ipv6_setup=0
+Mon Jul 15 12:05:12 2013 /sbin/ifconfig tun0 10.8.0.6 pointopoint 10.8.0.5 mtu 1 500
+Mon Jul 15 12:05:12 2013 /sbin/route add -net 10.8.0.0 netmask 255.255.255.0 gw  10.8.0.5
+
+TESTING
+
+ifconfig tun0
+you should receive something similar to:
+
+tun0      Link encap:UNSPEC  HWaddr 00-00-00-00-00-00-00-00-00-00-00-00-00-00-00-00
+          inet addr:10.8.0.6  P-t-P:10.8.0.5  Mask:255.255.255.255
+          UP POINTOPOINT RUNNING NOARP MULTICAST  MTU:1500  Metric:1
+          RX packets:0 errors:0 dropped:0 overruns:0 frame:0
+          TX packets:0 errors:0 dropped:0 overruns:0 carrier:0
+          collisions:0 txqueuelen:100
+          RX bytes:0 (0.0 B)  TX bytes:0 (0.0 B)
+
+ping 10.8.0.1
+you should receive:
+PING 10.8.0.1 (10.8.0.1) 56(84) bytes of data.
+64 bytes from 10.8.0.1: icmp_req=1 ttl=64 time=0.925 ms
+64 bytes from 10.8.0.1: icmp_req=2 ttl=64 time=0.654 ms
+
+SUMMARY
+
+At this point, we have a working OpenVPN server that can be used to remotely VPN to your OpenVPN server. There are more simplistic setups than this, but I really wanted to enforce two-factor authentication. Adding the ability to use LDAP for two-facotr authentication was an added bonus. There are other things that you can do to make your configuration better, and if someone has any tips I would love to hear them!
+
+This setup will also work for Windows clients. Just have them download the OpenVPN client from: http://openvpn.net/index.php/open-source/downloads.html.
+
+Thanks again for reading. If you have any comments or questions, please leave them below. And also remember that besides Google, the best resources for this area that I have found is the #openvpn IRC channels on Freenode.
+
+
+I Corinthians 15:1-4
+
+RESOURCES
+
+Vincent Danen's How to Setup an OpenVPN Server:
+http://i.techrepublic.com.com/downloads/linux/openvpncomp_danen.pdf?tag=mantle_skin;content
+Debuntu's OpenVPN/Installation:
+http://wiki.debuntu.org/wiki/OpenVPN/Installation
+chantra's How-To: OpenVPN On Debian Squeeze With Username/Password Authentication:
+http://www.debuntu.org/how-to-openvpn-on-debian-squeeze-with-usernamepassword-authentication/
+Posted 16th July 2013 by John McCarthy
+Labels: Debian Linux OpenVPN Two Factor Two-Factor Two-Factor Authentication VPN Wheezy
